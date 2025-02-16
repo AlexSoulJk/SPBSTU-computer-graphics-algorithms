@@ -17,15 +17,22 @@ HRESULT Render::Init() {
 
     // Factory creation
     IDXGIFactory* pFactory = nullptr;
-    hr = CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&pFactory);
-    if (FAILED(hr)) return hr;
+    hr = CreateDXGIFactory(__uuidof(IDXGIFactory), reinterpret_cast<void**>(&pFactory));
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать DXGI фабрику\n");
+        return hr;
+    }
 
-    // Adapter selection
+    // Выбор адаптера
     IDXGIAdapter* pAdapter = nullptr;
     hr = pFactory->EnumAdapters(0, &pAdapter);
-    if (FAILED(hr)) { pFactory->Release(); return hr; }
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось получить графический адаптер\n");
+        pFactory->Release();
+        return hr;
+    }
 
-    // Device creation
+    // Создание устройства Direct3D 11
     D3D_FEATURE_LEVEL featureLevel;
     hr = D3D11CreateDevice(
         pAdapter,
@@ -43,9 +50,14 @@ HRESULT Render::Init() {
         &featureLevel,
         &m_pDeviceContext
     );
-    if (FAILED(hr)) { pAdapter->Release(); pFactory->Release(); return hr; }
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать D3D11 устройство\n");
+        pAdapter->Release();
+        pFactory->Release();
+        return hr;
+    }
 
-    // Swap chain creation
+    // Создание цепочки подкачки
     DXGI_SWAP_CHAIN_DESC swapDesc = {};
     swapDesc.BufferCount = 2;
     swapDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -58,18 +70,29 @@ HRESULT Render::Init() {
     hr = pFactory->CreateSwapChain(m_pDevice, &swapDesc, &m_pSwapChain);
     pAdapter->Release();
     pFactory->Release();
-    if (FAILED(hr)) return hr;
 
-    // Initialization steps
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать цепочку подкачки\n");
+        return hr;
+    }
+
+    // Инициализация компонентов
+    if (SUCCEEDED(hr)) hr = InitBlend();
     if (SUCCEEDED(hr)) hr = ConfigureBackBuffer();
     if (SUCCEEDED(hr)) hr = InitGeometry();
     if (SUCCEEDED(hr)) hr = InitShaders();
+
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Инициализация компонентов завершилась с ошибкой\n");
+        Terminate();
+    }
 
     return hr;
 }
 
 void Render::Terminate() {
     if (m_pInputLayout) { m_pInputLayout->Release(); m_pInputLayout = nullptr; }
+    if (m_pBlendState) { m_pBlendState->Release(); m_pBlendState = nullptr; }
     if (m_pVertexShader) { m_pVertexShader->Release(); m_pVertexShader = nullptr; }
     if (m_pPixelShader) { m_pPixelShader->Release(); m_pPixelShader = nullptr; }
     if (m_pVertexBuffer) { m_pVertexBuffer->Release(); m_pVertexBuffer = nullptr; }
@@ -80,15 +103,33 @@ void Render::Terminate() {
     if (m_pDevice) { m_pDevice->Release(); m_pDevice = nullptr; }
 }
 
+HRESULT Render::InitBlend() {
+    D3D11_BLEND_DESC blendDesc = {};
+    blendDesc.RenderTarget[0].BlendEnable = TRUE;
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+    HRESULT hr = m_pDevice->CreateBlendState(&blendDesc, &m_pBlendState);
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать состояние смешивания\n");
+    }
+    return hr;
+}
+
 HRESULT Render::InitGeometry() {
-    // Vertex data
+    // Данные вершин
     const Vertex vertices[] = {
-    { 0.0f,  0.5f, 0.0f, {1.0f, 0.0f, 0.0f, 1.0f} }, // Красный
-    { 0.5f, -0.5f, 0.0f, {0.0f, 1.0f, 0.0f, 1.0f} }, // Зеленый
-    {-0.5f, -0.5f, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f} }  // Синий
+        { 0.0f,  0.5f, 0.0f, {1.0f, 0.0f, 0.0f, 1.0f} },
+        { 0.5f, -0.5f, 0.0f, {0.0f, 1.0f, 0.0f, 1.0f} },
+        {-0.5f, -0.5f, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f} }
     };
 
-    // Create vertex buffer
+    // Создание вершинного буфера
     D3D11_BUFFER_DESC vbDesc = {};
     vbDesc.ByteWidth = sizeof(vertices);
     vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
@@ -99,38 +140,58 @@ HRESULT Render::InitGeometry() {
 
     HRESULT hr = m_pDevice->CreateBuffer(&vbDesc, &vbData, &m_pVertexBuffer);
     if (FAILED(hr)) {
-        OutputDebugString(L"Ошибка при создании буфера вершин\n");
-        return hr;
+        OutputDebugString(L"[ERROR] Ошибка создания вершинного буфера\n");
     }
+    return hr;
 }
 
 HRESULT Render::InitShaders() {
-    // Compile shaders
+    // Компиляция шейдеров
     ID3DBlob* vsBlob = nullptr;
     HRESULT hr = CompileShader(L"VertexColor.vs", &vsBlob);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Ошибка компиляции вершинного шейдера\n");
+        return hr;
+    }
 
     ID3DBlob* psBlob = nullptr;
     hr = CompileShader(L"PixelColor.ps", &psBlob);
-    if (FAILED(hr)) { vsBlob->Release(); return hr; }
-
-    // Create shaders
-    hr = m_pDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_pVertexShader);
-    if (SUCCEEDED(hr)) {
-        hr = m_pDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_pPixelShader);
+    if (FAILED(hr)) {
+        vsBlob->Release();
+        OutputDebugString(L"[ERROR] Ошибка компиляции пиксельного шейдера\n");
+        return hr;
     }
 
-    // Create input layout
-    if (SUCCEEDED(hr)) {
-        D3D11_INPUT_ELEMENT_DESC layout[] = {
+    // Создание шейдеров
+    hr = m_pDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_pVertexShader);
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать вершинный шейдер\n");
+        vsBlob->Release();
+        psBlob->Release();
+        return hr;
+    }
+
+    hr = m_pDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_pPixelShader);
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось создать пиксельный шейдер\n");
+        vsBlob->Release();
+        psBlob->Release();
+        return hr;
+    }
+
+    // Создание входного лэйаута
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
-        };
-        hr = m_pDevice->CreateInputLayout(layout, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_pInputLayout);
-    }
+    };
 
+    hr = m_pDevice->CreateInputLayout(layout, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_pInputLayout);
     vsBlob->Release();
     psBlob->Release();
+
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Ошибка создания входного лэйаута\n");
+    }
     return hr;
 }
 
@@ -159,7 +220,7 @@ HRESULT Render::CompileShader(const std::wstring& path, ID3DBlob** pBlob) {
     );
 
     if (FAILED(hr) && errorBlob) {
-        OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        std::string errorMsg = static_cast<const char*>(errorBlob->GetBufferPointer());
         errorBlob->Release();
     }
     return hr;
@@ -183,6 +244,8 @@ void Render::RenderStart() {
     // Set pipeline state
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
+    float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    m_pDeviceContext->OMSetBlendState(m_pBlendState, blendFactor, 0xFFFFFFFF);
     m_pDeviceContext->IASetVertexBuffers(0, 1, &m_pVertexBuffer, &stride, &offset);
     m_pDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_pDeviceContext->IASetInputLayout(m_pInputLayout);
@@ -199,18 +262,16 @@ void Render::RenderStart() {
 HRESULT Render::ConfigureBackBuffer() {
     ID3D11Texture2D* pBackBuffer = nullptr;
     HRESULT hr = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-    if (SUCCEEDED(hr)) {
-        hr = m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
-        pBackBuffer->Release();
-
-        if (SUCCEEDED(hr)) {
-            m_pDeviceContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
-            
-        }
+    if (FAILED(hr)) {
+        OutputDebugString(L"[ERROR] Не удалось получить back buffer из swap chain\n");
+        return hr;
     }
+    hr = m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
+    pBackBuffer->Release(); // Освобождаем ресурс, так как он больше не нужен
+
+    m_pDeviceContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
     return hr;
 }
-
 void Render::Resize() {
     if (!m_pSwapChain) return;
 
@@ -236,4 +297,5 @@ void Render::Resize() {
     vp.TopLeftX = 0;
     vp.TopLeftY = 0;
     m_pDeviceContext->RSSetViewports(1, &vp);
+    OutputDebugString(L"[INFO] Back buffer успешно настроен\n");
 }

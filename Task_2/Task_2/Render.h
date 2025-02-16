@@ -30,6 +30,7 @@ private:
     HRESULT InitShaders();
     HRESULT CompileShader(const std::wstring& path, ID3DBlob** pCode = nullptr);
     HRESULT ConfigureBackBuffer();
+    HRESULT InitBlend();
 
     HWND m_hWnd;
     POINT m_mousePos = { 0, 0 };
@@ -46,6 +47,8 @@ private:
     ID3D11InputLayout* m_pInputLayout = nullptr;
     ID3D11VertexShader* m_pVertexShader = nullptr;
     ID3D11PixelShader* m_pPixelShader = nullptr;
+    // Фактор для смешивания.
+    ID3D11BlendState* m_pBlendState = nullptr;
 };
 
 #endif
