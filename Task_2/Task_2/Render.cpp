@@ -106,7 +106,7 @@ void Render::Terminate() {
 HRESULT Render::InitBlend() {
     D3D11_BLEND_DESC blendDesc = {};
     blendDesc.RenderTarget[0].BlendEnable = TRUE;
-    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
     blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
     blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
     blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
@@ -244,7 +244,7 @@ void Render::RenderStart() {
     // Set pipeline state
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
-    float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float blendFactor[4] = { 0.5f, 0.5f, 0.5f, 0.5f }; // 50% смешивания
     m_pDeviceContext->OMSetBlendState(m_pBlendState, blendFactor, 0xFFFFFFFF);
     m_pDeviceContext->IASetVertexBuffers(0, 1, &m_pVertexBuffer, &stride, &offset);
     m_pDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
