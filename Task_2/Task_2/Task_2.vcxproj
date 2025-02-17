@@ -108,6 +108,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3dcompiler.lib;d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -144,6 +145,16 @@
     <Image Include="small.ico" />
     <Image Include="Task_2.ico" />
   </ItemGroup>
+	<ItemGroup>
+		<CopyFileToFolders Include="PixelColor.ps">
+			<FileType>Document</FileType>
+			<DestinationFolder>$(OutDir)</DestinationFolder>
+		</CopyFileToFolders>
+		<CopyFileToFolders Include="VertexColor.vs">
+			<FileType>Document</FileType>
+			<DestinationFolder>$(OutDir)</DestinationFolder>
+		</CopyFileToFolders>
+	</ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

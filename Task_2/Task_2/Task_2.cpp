@@ -16,7 +16,7 @@ using Microsoft::WRL::ComPtr;
 
 #define MAX_LOADSTRING 100
 
-WCHAR szTitle[MAX_LOADSTRING] = L"Task2 Solomatov Alex";
+WCHAR szTitle[MAX_LOADSTRING] = L"Task2 Solomatov Alex: Triangle.";
 WCHAR szWindowClass[MAX_LOADSTRING] = L"Task2";
 
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -146,10 +146,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_DESTROY:
-        if (g_Render) {
-            g_Render->Terminate();
-            g_Render.reset();
-        }
+        g_Render.reset();
         PostQuitMessage(0);
         break;
 

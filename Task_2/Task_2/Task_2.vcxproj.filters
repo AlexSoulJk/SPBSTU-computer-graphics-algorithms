@@ -52,4 +52,12 @@
       <Filter>Файлы ресурсов</Filter>
     </Image>
   </ItemGroup>
+	<ItemGroup>
+	<CopyFileToFolders Include="VertexColor.vs">
+		<Filter>Shaders</Filter>
+	</CopyFileToFolders>
+	<CopyFileToFolders Include="PixelColor.ps">
+		<Filter>Shaders</Filter>
+	</CopyFileToFolders>
+	</ItemGroup>
 </Project>
