@@ -1,7 +1,13 @@
-cbuffer GeomBuffer : register (b0)
+cbuffer MatrixBuffer : register(b0)
 {
-    float4x4 model;
-}
+    matrix m;
+};
+
+cbuffer CameraBuffer : register(b1)
+{
+    matrix vp;
+};
+
 struct VSInput
 {
     float3 pos : POSITION;
@@ -16,10 +22,10 @@ struct VSOutput
 
 VSOutput main(VSInput vertex)
 {
-    VSOutput result;
-
-    result.pos = mul(model, float4(vertex.pos, 1.0));
-    result.color = vertex.color;
-
-    return result;
+    VSOutput output;
+    float4 pos = float4(vertex.pos, 1.0);
+    output.pos = mul(pos, m);
+    output.pos = mul(output.pos, vp);
+    output.color = vertex.color;
+    return output;
 }

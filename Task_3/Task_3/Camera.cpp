@@ -1,29 +1,82 @@
 #include "Camera.h"
+
 Camera::Camera() :
-    position(0, 0, -5),
-    pitch(0),
-    yaw(0)
+    position(0, 0, -5.0f),
+    speed(0.1f),
+    LRAngle(0.0f),
+    UDAngle(0.0f),
+    m_pDeviceContext(nullptr)
 {
 }
 
-void Camera::Update(float dt) {
-    // Обработка ввода
-    if (GetAsyncKeyState('W') & 0x8000) position.z += dt;
-    if (GetAsyncKeyState('S') & 0x8000) position.z -= dt;
-    if (GetAsyncKeyState('A') & 0x8000) yaw -= dt;
-    if (GetAsyncKeyState('D') & 0x8000) yaw += dt;
+Camera::Camera(ID3D11DeviceContext* context) : Camera() {
+    m_pDeviceContext = context;
+};
+
+HRESULT Camera::CameraUpdate(float aspectRatio) {
+    XMMATRIX vp = GetVP(aspectRatio);
+    XMMATRIX vpT = XMMatrixTranspose(vp);
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    HRESULT hr = m_pDeviceContext->Map(m_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    if (SUCCEEDED(hr))
+    {
+        memcpy(mappedResource.pData, &vpT, sizeof(XMMATRIX));
+        m_pDeviceContext->Unmap(m_pVPBuffer, 0);
+    }
+    m_pDeviceContext->VSSetConstantBuffers(1, 1, &m_pVPBuffer);
+    return hr;
 }
 
-DirectX::XMMATRIX Camera::GetViewMatrix() const {
-    return DirectX::XMMatrixLookAtLH(
-        DirectX::XMLoadFloat3(&position),
-        DirectX::XMVectorSet(0, 0, 0, 0),
-        DirectX::XMVectorSet(0, 1, 0, 0)
-    );
-}
+void Camera::Move(XMFLOAT3 direction) {
+    position.x += direction.x * speed;
+    position.y += direction.y * speed;
+    position.z += direction.z * speed;
+};
 
-DirectX::XMMATRIX Camera::GetProjMatrix() const {
-    return DirectX::XMMatrixPerspectiveFovLH(
-        DirectX::XM_PIDIV4, 16.0f / 9.0f, 0.1f, 100.0f
+void Camera::Rotate(XMFLOAT2 angleDirection) {
+    LRAngle += angleDirection.x;
+    UDAngle += angleDirection.y;
+
+    if (LRAngle > XM_2PI) LRAngle -= XM_2PI;
+    if (LRAngle < -XM_2PI) LRAngle += XM_2PI;
+
+    if (UDAngle > XM_PIDIV2) UDAngle = XM_PIDIV2;
+    if (UDAngle < -XM_PIDIV2) UDAngle = -XM_PIDIV2;
+};
+
+XMMATRIX Camera::GetVP(float aspectRatio) const
+{
+    // Вычисляем направление взгляда камеры
+    XMVECTOR direction = XMVectorSet(
+        cosf(UDAngle) * sinf(LRAngle),
+        sinf(UDAngle),
+        cosf(UDAngle) * cosf(LRAngle),
+        0.0f
     );
+
+    // Позиция камеры
+    XMVECTOR eyePos = XMLoadFloat3(&position);
+
+    // Точка, в которую смотрит камера (фокус)
+    XMVECTOR focusPoint = XMVectorAdd(eyePos, direction);
+
+    // Вектор "вверх" для камеры
+    static const XMVECTOR upDir = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    // Матрица вида (view matrix)
+    XMMATRIX view = XMMatrixLookAtLH(eyePos, focusPoint, upDir);
+
+    // Матрица проекции (projection matrix)
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(XM_PIDIV4, aspectRatio, 0.1f, 100.0f);
+
+    // Возвращаем произведение матриц вида и проекции
+    return view * proj;
+}
+HRESULT Camera::InitVPBuffer(ID3D11Device* device) {
+    D3D11_BUFFER_DESC vpBufferDesc = {};
+    vpBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+    vpBufferDesc.ByteWidth = sizeof(XMMATRIX);
+    vpBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    vpBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    return device->CreateBuffer(&vpBufferDesc, nullptr, &m_pVPBuffer);
 }
