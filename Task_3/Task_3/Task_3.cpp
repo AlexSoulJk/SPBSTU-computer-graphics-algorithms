@@ -109,7 +109,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     }
 
     g_Render = std::make_unique<Render>(hWnd);
-    if (FAILED(g_Render->Init()))
+    if (FAILED(g_Render->Init(szTitle, szWindowClass)))
     {
         OutputDebugString(_T("Error in Init Renderer\n"));
         g_Render.reset();
@@ -122,36 +122,67 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
+void HandleResize(WPARAM wParam)
+{
+    if (g_Render != nullptr && wParam != SIZE_MINIMIZED)
+    {
+        g_Render->Resize();
+    }
+}
+
+bool IsCameraControlKey(WPARAM wParam)
+{
+    switch (wParam)
+    {
+    case 'W':
+    case 'S':
+    case 'A':
+    case 'D':
+    case VK_UP:
+    case VK_DOWN:
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_ADD:
+    case VK_SUBTRACT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void HandleKeyDown(WPARAM wParam)
+{
+    if (IsCameraControlKey(wParam))
+    {
+        g_Render->UpdateCamera(wParam);
+    }
+    else if (wParam == VK_ESCAPE)
+    {
+        PostQuitMessage(0);
+    }
+}
+
+
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_SIZE:
-        if (g_Render && wParam != SIZE_MINIMIZED)
-        {
-            g_Render->Resize();
-        }
+        HandleResize(wParam);
         return 0;
 
-    case WM_MOUSEMOVE:
-        if (g_Render) {
-            g_Render->SetMousePos(LOWORD(lParam), HIWORD(lParam));
-        }
-        break;
-
-    case WM_PAINT:
-        if (g_Render)
-            g_Render->RenderStart();
-        ValidateRect(hWnd, nullptr);
-        break;
+    case WM_KEYDOWN:
+        HandleKeyDown(wParam);
+        return 0;
 
     case WM_DESTROY:
-        g_Render.reset();
         PostQuitMessage(0);
-        break;
+        return 0;
 
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
-    return 0;
 }
+
+

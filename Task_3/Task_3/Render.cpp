@@ -1,28 +1,50 @@
+#include "framework.h"
 #include "Render.h"
-#include <windowsx.h>
-#include <iostream>
 
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
+#include <filesystem>
 
-Render::Render(HWND hWnd) : m_hWnd(hWnd) {}
+#include <dxgi.h>
+#include <d3d11.h>
+#include <d3dcompiler.h>
 
-Render::~Render() {
-    Terminate();
-}
+#pragma comment (lib, "d3dcompiler.lib")
+#pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dxgi.lib")
 
-HRESULT Render::Init(ModelFactory::ModelCode code) {
-    HRESULT hr = S_OK;
-    // Factory creation
+struct Vertex
+{
+    float x, y, z;
+    COLORREF color;
+};
+
+struct MatrixBuffer
+{
+    XMMATRIX m;
+};
+
+
+Render::Render(HWND hWnd) : m_hWnd(hWnd), camera(nullptr), m_currentModel(nullptr),
+    m_pDevice(nullptr),
+    m_pDeviceContext(nullptr),
+    m_pSwapChain(nullptr),
+    m_pRenderTargetView(nullptr),
+    m_pPixelShader(nullptr),
+    m_pVertexShader(nullptr),
+    m_pInputLayout(nullptr),
+    m_szTitle(nullptr),
+    m_szWindowClass(nullptr){}
+
+HRESULT Render::Init(WCHAR szTitle[], WCHAR szWindowClass[])
+{
+    m_szTitle = szTitle;
+    m_szWindowClass = szWindowClass;
+
+    HRESULT hr;
+    ModelFactory::ModelCode init_code = ModelFactory::ModelCode::cube;
+
     IDXGIFactory* pFactory = nullptr;
-    hr = CreateDXGIFactory(__uuidof(IDXGIFactory), reinterpret_cast<void**>(&pFactory));
-    if (FAILED(hr)) {
-        OutputDebugString(L"[ERROR] Не удалось создать DXGI фабрику\n");
-        return hr;
-    }
+    hr = CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&pFactory);
 
-    // Выбор адаптера
     IDXGIAdapter* pAdapter = nullptr;
     hr = pFactory->EnumAdapters(0, &pAdapter);
     if (FAILED(hr)) {
@@ -49,6 +71,7 @@ HRESULT Render::Init(ModelFactory::ModelCode code) {
         &featureLevel,
         &m_pDeviceContext
     );
+
     if (FAILED(hr)) {
         OutputDebugString(L"[ERROR] Не удалось создать D3D11 устройство\n");
         pAdapter->Release();
@@ -56,17 +79,18 @@ HRESULT Render::Init(ModelFactory::ModelCode code) {
         return hr;
     }
 
-    // Создание цепочки подкачки
-    DXGI_SWAP_CHAIN_DESC swapDesc = {};
-    swapDesc.BufferCount = 2;
-    swapDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.OutputWindow = m_hWnd;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.Windowed = TRUE;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    DXGI_SWAP_CHAIN_DESC swapChainDesc = { 0 };
+    swapChainDesc.BufferCount = 2;
+    swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapChainDesc.OutputWindow = m_hWnd;
+    swapChainDesc.SampleDesc.Count = 4;
+    swapChainDesc.SampleDesc.Quality = 0;
+    swapChainDesc.Windowed = true;
+    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    swapChainDesc.Flags = 0;
 
-    hr = pFactory->CreateSwapChain(m_pDevice, &swapDesc, &m_pSwapChain);
+    hr = pFactory->CreateSwapChain(m_pDevice, &swapChainDesc, &m_pSwapChain);
     pAdapter->Release();
     pFactory->Release();
 
@@ -75,82 +99,20 @@ HRESULT Render::Init(ModelFactory::ModelCode code) {
         return hr;
     }
 
-    // Инициализация компонентов
-    if (SUCCEEDED(hr)) hr = InitBlend();
     if (SUCCEEDED(hr)) hr = ConfigureBackBuffer();
-    if (SUCCEEDED(hr)) hr = InitGeometry();
-    if (SUCCEEDED(hr)) hr = InitShaders();
+    if (SUCCEEDED(hr)) hr = InitGeometry(init_code);
+    if (SUCCEEDED(hr)) hr = InitBufferShader();
 
-    if (FAILED(hr)) {
-        OutputDebugString(L"[ERROR] Инициализация компонентов завершилась с ошибкой\n");
+    if (FAILED(hr))
+    {
         Terminate();
     }
 
     return hr;
 }
 
-void Render::Terminate() {
-    if (m_pInputLayout) { m_pInputLayout->Release(); m_pInputLayout = nullptr; }
-    if (m_pBlendState) { m_pBlendState->Release(); m_pBlendState = nullptr; }
-    if (m_pVertexShader) { m_pVertexShader->Release(); m_pVertexShader = nullptr; }
-    if (m_pPixelShader) { m_pPixelShader->Release(); m_pPixelShader = nullptr; }
-    if (m_pVertexBuffer) { m_pVertexBuffer->Release(); m_pVertexBuffer = nullptr; }
-    if (m_pIndexBuffer) { m_pIndexBuffer->Release(); m_pIndexBuffer = nullptr; }
-    if (m_pRenderTargetView) { m_pRenderTargetView->Release(); m_pRenderTargetView = nullptr; }
-    if (m_pSwapChain) { m_pSwapChain->Release(); m_pSwapChain = nullptr; }
-    if (m_pDeviceContext) { m_pDeviceContext->Release(); m_pDeviceContext = nullptr; }
-    if (m_pDevice) { m_pDevice->Release(); m_pDevice = nullptr; }
-}
-
-HRESULT Render::InitBlend() {
-    D3D11_BLEND_DESC blendDesc = {};
-    blendDesc.RenderTarget[0].BlendEnable = TRUE;
-    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
-    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-    blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-    blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-    blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
-    blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-
-    HRESULT hr = m_pDevice->CreateBlendState(&blendDesc, &m_pBlendState);
-    if (FAILED(hr)) {
-        OutputDebugString(L"[ERROR] Не удалось создать состояние смешивания\n");
-    }
-    return hr;
-}
-void Render::SetModel(ModelFactory::ModelCode code) {
-    if (m_currentModel) ModelFactory::ReleaseModel(m_currentModel);
-    m_currentModel = ModelFactory::CreateModel(code, m_pDevice);
-}
-HRESULT Render::InitGeometry() {
-    // Данные вершин
-    
-    if (!m_currentModel) {
-        OutputDebugString(L"[ERROR] Не удалось создать модель\n");
-        return E_FAIL;
-    }
-
-    return S_OK;
-
-    //// Создание вершинного буфера
-    //D3D11_BUFFER_DESC vbDesc = {};
-    //vbDesc.ByteWidth = sizeof(vertices);
-    //vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
-    //vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-
-    //D3D11_SUBRESOURCE_DATA vbData = {};
-    //vbData.pSysMem = vertices;
-
-    //HRESULT hr = m_pDevice->CreateBuffer(&vbDesc, &vbData, &m_pVertexBuffer);
-    //if (FAILED(hr)) {
-    //    OutputDebugString(L"[ERROR] Ошибка создания вершинного буфера\n");
-    //}
-    /*return hr;*/
-}
-
-HRESULT Render::InitShaders() {
-    // Компиляция шейдеров
+HRESULT Render::InitBufferShader()
+{
     ID3DBlob* vsBlob = nullptr;
     HRESULT hr = CompileShader(L"VertexColor.vs", &vsBlob);
     if (FAILED(hr)) {
@@ -199,6 +161,83 @@ HRESULT Render::InitShaders() {
     return hr;
 }
 
+HRESULT Render::InitGeometry(ModelFactory::ModelCode code) {
+    HRESULT hr = InitModel(code);
+    if (FAILED(hr)) {
+        Terminate();
+        return hr;
+    }
+
+    hr = InitCamera();
+    if (FAILED(hr)) {
+        Terminate();
+        return hr;
+    }
+
+    return hr;
+}
+
+HRESULT Render::InitCamera() {
+   camera = new Camera(m_pDeviceContext);
+   return camera->InitVPBuffer(m_pDevice);
+}
+
+HRESULT Render::InitModel(ModelFactory::ModelCode code) {
+    m_currentModel = ModelFactory::CreateModel(code, m_pDeviceContext);
+    return m_currentModel->InitModel(m_pDevice);
+}
+
+void Render::Terminate()
+{
+    if (m_currentModel) {
+        ModelFactory::ReleaseModel(m_currentModel);
+        m_currentModel = nullptr;
+    }
+    if (camera) {
+        delete camera;
+        camera = nullptr;
+    }
+
+    if (m_pDeviceContext) {
+        m_pDeviceContext->Release();
+        m_pDeviceContext = nullptr;
+    }
+
+    if (m_pSwapChain) {
+        m_pSwapChain->Release();
+        m_pSwapChain = nullptr;
+    }
+
+    if (m_pInputLayout) { 
+        m_pInputLayout->Release(); 
+        m_pInputLayout = nullptr;
+    }
+
+    if (m_pVertexShader) {
+        m_pVertexShader->Release(); 
+        m_pVertexShader = nullptr;
+    }
+    if (m_pPixelShader) {
+        m_pPixelShader->Release(); 
+        m_pPixelShader = nullptr;
+    };
+    if (m_pRenderTargetView) { 
+        m_pRenderTargetView->Release(); 
+        m_pRenderTargetView = nullptr;
+    }
+
+    if (m_pDevice) {
+        m_pDevice->Release();
+        m_pDevice = nullptr;
+    }
+}
+
+void Render::SetModel(ModelFactory::ModelCode code) {
+    if (m_currentModel) ModelFactory::ReleaseModel(m_currentModel);
+    m_currentModel = ModelFactory::CreateModel(code, m_pDeviceContext);
+}
+
+
 HRESULT Render::CompileShader(const std::wstring& path, ID3DBlob** pBlob) {
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #ifdef _DEBUG
@@ -230,76 +269,127 @@ HRESULT Render::CompileShader(const std::wstring& path, ID3DBlob** pBlob) {
     return hr;
 }
 
-void Render::RenderStart() {
-    // Clear back buffer
-    RECT rc;
-    GetClientRect(m_hWnd, &rc);
-    float nx = static_cast<float>(m_mousePos.x) / (rc.right - rc.left);
-    float ny = static_cast<float>(m_mousePos.y) / (rc.bottom - rc.top);
+void Render::UpdateCamera(WPARAM wParam) {
+    switch(wParam) {
+        case 'W':
+            // Upward rotation
+            camera->Rotate({ 0.0f, 0.01f });
+            break;
+        case 'S': // Rotating downwards
+            camera->Rotate({ 0.0f, -0.01f });
+            break;
+        case 'A': // Left rotation
+            camera->Rotate({ -0.01f, 0.0f });
+            break;
+        case 'D': // Right rotation
+            camera->Rotate({0.01f, 0.0f});
+            break;
+        case VK_UP:
+            camera->Move({ 0.0f, 1.0f, 0.0f });
+            break;
+        case VK_DOWN:
+            camera->Move({ 0.0f, -1.0f, 0.0f });
+            break;
+        case VK_LEFT:
+            camera->Move({ -1.0f, 0.0f, 0.0f });
+            break;
+        case VK_RIGHT:
+            camera->Move({ 1.0f, 0.0f, 0.0f });
+            break;
+        case VK_ADD:
+        case 0xBB:
+            camera->Move({ 0.0f, 0.0f, 1.0f });
+            break;
 
-    float BackColor[4] = {
-        nx,          // Красный зависит от X
-        ny,          // Зеленый зависит от Y
-        (nx + ny) / 2, // Синий - среднее
-        1.0f
-    };
-    m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView, BackColor);
-
-    // Set pipeline state
-    UINT stride = sizeof(ModelManagerAbstract::Vertex);
-    UINT offset = 0;
-    float blendFactor[4] = { 0.5f, 0.5f, 0.5f, 0.5f }; // 50% смешивания
-    m_pDeviceContext->OMSetBlendState(m_pBlendState, blendFactor, 0xFFFFFFFF);
-    m_pDeviceContext->IASetVertexBuffers(0, 1, &m_pVertexBuffer, &stride, &offset);
-    m_pDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_pDeviceContext->IASetInputLayout(m_pInputLayout);
-    m_pDeviceContext->VSSetShader(m_pVertexShader, nullptr, 0);
-    m_pDeviceContext->PSSetShader(m_pPixelShader, nullptr, 0);
-
-    // Draw triangle
-    m_pDeviceContext->Draw(3, 0);
-
-    // Present
-    m_pSwapChain->Present(0, 0);
-}
-
-HRESULT Render::ConfigureBackBuffer() {
-    ID3D11Texture2D* pBackBuffer = nullptr;
-    HRESULT hr = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-    if (FAILED(hr)) {
-        OutputDebugString(L"[ERROR] Не удалось получить back buffer из swap chain\n");
-        return hr;
     }
-    hr = m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
-    pBackBuffer->Release(); // Освобождаем ресурс, так как он больше не нужен
 
-    m_pDeviceContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
-    return hr;
 }
-void Render::Resize() {
-    if (!m_pSwapChain) return;
 
-    m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 
-    if (m_pRenderTargetView) m_pRenderTargetView->Release();
-
+void Render::RenderStart()
+{
+    m_pDeviceContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
+    float BackColor[4] = { 0.48f, 0.57f, 0.48f, 1.0f };
+    m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView, BackColor);
+    m_currentModel->Update(0.0);
     RECT rc;
     GetClientRect(m_hWnd, &rc);
     UINT width = rc.right - rc.left;
     UINT height = rc.bottom - rc.top;
+    HRESULT hr = camera->CameraUpdate((float)width / (float)height);
+    m_pDeviceContext->IASetInputLayout(m_pInputLayout);
+    m_pDeviceContext->VSSetShader(m_pVertexShader, nullptr, 0);
+    m_pDeviceContext->PSSetShader(m_pPixelShader, nullptr, 0);
+    m_currentModel->Render();
+    m_pSwapChain->Present(1, 0);
+}
 
-    HRESULT hr = m_pSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-    if (SUCCEEDED(hr)) {
-        ConfigureBackBuffer();
+void Render::SetMVPBuffer()
+{
+    m_currentModel->Update(0.0);
+    RECT rc;
+    GetClientRect(m_hWnd, &rc);
+    UINT width = rc.right - rc.left;
+    UINT height = rc.bottom - rc.top;
+    HRESULT hr = camera->CameraUpdate((float)width / (float)height);
+    
+}
+
+HRESULT Render::ConfigureBackBuffer()
+{
+    ID3D11Texture2D* pBackBuffer = nullptr;
+    HRESULT hr = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
+    if (FAILED(hr))
+        return hr;
+
+    hr = m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
+    pBackBuffer->Release();
+    if (FAILED(hr))
+        return hr;
+
+    return hr;
+}
+
+void Render::Resize()
+{
+    if (m_pRenderTargetView)
+    {
+        m_pRenderTargetView->Release();
+        m_pRenderTargetView = nullptr;
     }
 
-    D3D11_VIEWPORT vp = {};
-    vp.Width = static_cast<FLOAT>(width);
-    vp.Height = static_cast<FLOAT>(height);
-    vp.MinDepth = 0.0f;
-    vp.MaxDepth = 1.0f;
-    vp.TopLeftX = 0;
-    vp.TopLeftY = 0;
-    m_pDeviceContext->RSSetViewports(1, &vp);
-    OutputDebugString(L"[INFO] Back buffer успешно настроен\n");
+    if (m_pSwapChain)
+    {
+        HRESULT hr;
+
+        RECT rc;
+        GetClientRect(m_hWnd, &rc);
+        UINT width = rc.right - rc.left;
+        UINT height = rc.bottom - rc.top;
+
+        hr = m_pSwapChain->ResizeBuffers(1, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+        if (FAILED(hr))
+        {
+            MessageBox(nullptr, L"ResizeBuffers failed.", L"Error", MB_OK);
+            return;
+        }
+
+        HRESULT resultBack = ConfigureBackBuffer();
+        if (FAILED(resultBack))
+        {
+            MessageBox(nullptr, L"Configure back buffer failed.", L"Error", MB_OK);
+            return;
+        }
+
+        m_pDeviceContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
+
+        D3D11_VIEWPORT vp;
+        vp.Width = (FLOAT)width;
+        vp.Height = (FLOAT)height;
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
+        vp.TopLeftX = 0;
+        vp.TopLeftY = 0;
+        m_pDeviceContext->RSSetViewports(1, &vp);
+    }
 }

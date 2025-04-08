@@ -1,22 +1,19 @@
 #pragma once
 #include "Cube.h"
-#include "Triangle.h"
-
-
-
+#include "Pyramid.h"
 
 class ModelFactory {
 public:
     enum ModelCode {
         cube,
-        triangle,
+        pyramid,
     };
-    static ModelManagerAbstract* CreateModel(ModelCode code, ID3D11Device* device) {
+    static ModelManagerAbstract* CreateModel(ModelCode code, ID3D11DeviceContext* context) {
         switch (code) {
         case ModelCode::cube:
-            return new Cube(device);
-        case ModelCode::triangle:
-            return new Triangle(device);
+            return new Cube(context);
+        case ModelCode::pyramid:
+            return new Pyramid(context);
         default:
             return nullptr;
         }
